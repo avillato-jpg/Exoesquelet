@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Exoesqueleto de rodilla</title>
+<style>
+:root{--bg:#e9eeec;--pn:#f8faf9;--fg:#18211e;--mut:#56635e;--ln:#ccd5d1;--ac:#0e8a78;--bad:#c0392b;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121816;--pn:#1a2220;--fg:#e6eeeb;--mut:#92a19b;--ln:#2d3935;--ac:#3fd1ba;--bad:#ff6b5b;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#121816;--pn:#1a2220;--fg:#e6eeeb;--mut:#92a19b;--ln:#2d3935;--ac:#3fd1ba;--bad:#ff6b5b;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 "Avenir Next","Segoe UI",system-ui,sans-serif}
+main{display:grid;grid-template-columns:1fr 330px;height:100%}
+#v{position:relative;min-height:0;touch-action:none;cursor:grab}
+#v canvas{display:block;width:100%;height:100%}
+aside{background:var(--pn);border-left:1px solid var(--ln);padding:20px;overflow-y:auto}
+h1{font-size:20px;line-height:1.2;margin:0 0 6px}
+.sub{color:var(--mut);margin:0 0 16px;font-size:14px}
+.rd{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+.rd b{font-size:34px;font-variant-numeric:tabular-nums;min-width:3.4ch}
+#st{font-weight:600;color:var(--ac)}
+#st.bad{color:var(--bad)}
+input[type=range]{width:100%;accent-color:var(--ac)}
+button{margin:8px 0 14px;padding:7px 14px;border:1px solid var(--ln);border-radius:8px;background:transparent;color:var(--fg);font:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+ul{list-style:none;margin:0;padding:0}
+li{display:grid;grid-template-columns:20px 1fr;gap:2px 10px;padding:10px 0;border-top:1px solid var(--ln)}
+li i{width:14px;height:14px;border-radius:4px;margin-top:5px;grid-row:span 2}
+li label{font-weight:600;cursor:pointer;display:flex;gap:8px;align-items:center}
+li small{color:var(--mut);grid-column:2;line-height:1.4}
+.note{color:var(--mut);font-size:13px;margin:12px 0 0}
+@media (max-width:760px){main{grid-template-columns:1fr;grid-template-rows:52% 48%}aside{border-left:0;border-top:1px solid var(--ln)}}
+</style></head>
+<body><main>
+<div id="v"></div>
+<aside>
+<h1>Exoesqueleto de rodilla</h1>
+<p class="sub">Modelo conceptual: mide la flexión de la rodilla y avisa antes de un movimiento de riesgo.</p>
+<div class="rd"><b id="ang">0°</b><span id="st">Rango seguro</span></div>
+<input type="range" id="fl" min="0" max="130" value="0" aria-label="Flexión de rodilla">
+<button id="pl">Pausar movimiento</button>
+<ul id="lg"></ul>
+<p class="note">Arrastra para girar. Rueda o pellizco para acercar. El LED del ESP32 pasa a rojo por encima de 100°.</p>
+</aside></main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const T=THREE,wrap=document.getElementById('v');
+const R=new T.WebGLRenderer({antialias:true,alpha:true});
+R.setPixelRatio(Math.min(devicePixelRatio,2));wrap.appendChild(R.domElement);
+const S=new T.Scene(),C=new T.PerspectiveCamera(38,1,.1,100);
+S.add(new T.HemisphereLight(0xffffff,0x6b7a74,1.0));
+const dl=new T.DirectionalLight(0xffffff,.9);dl.position.set(6,9,7);S.add(dl);
+const dl2=new T.DirectionalLight(0xffffff,.4);dl2.position.set(-6,2,-5);S.add(dl2);
+
+const M=(c,o={})=>new T.MeshStandardMaterial(Object.assign({color:c,roughness:.5},o));
+const mat={
+ leg:M(0xcfa98a,{transparent:true,opacity:.3,roughness:1,depthWrite:false}),
+ al:M(0xb9c2ca,{metalness:.35,roughness:.42}),
+ petg:M(0x1fb5a0,{transparent:true,opacity:.85,roughness:.3,side:T.DoubleSide}),
+ pad:M(0x8f9cab,{roughness:1,side:T.DoubleSide}),
+ strap:M(0x2c3136,{roughness:.9,side:T.DoubleSide}),
+ esp:M(0x1b3a6b),imu:M(0x2e7dd1),enc:M(0x7b3fa0),bat:M(0xe0b341),mag:M(0xd0d4d8,{metalness:.5})
+};
+const root=new T.Group();S.add(root);
+const L={};
+['leg','al','petg','strap','elec'].forEach(k=>{const g=new T.Group(),t=new T.Group(),s=new T.Group();g.add(t,s);root.add(g);L[k]={g,t,s}});
+const add=(k,p,geo,m,x=0,y=0,z=0,rx=0,ry=0,rz=0)=>{const o=new T.Mesh(geo,m);o.position.set(x,y,z);o.rotation.set(rx,ry,rz);L[k][p].add(o);return o};
+const Cy=(rt,rb,h,open=false,ts=0,tl=Math.PI*2)=>new T.CylinderGeometry(rt,rb,h,40,1,open,ts,tl);
+const B=(w,h,d)=>new T.BoxGeometry(w,h,d);
+const PI=Math.PI,BX=1.25;
+
+/* pierna de referencia (eje Y vertical, delante = +Z) */
+add('leg','t',Cy(1,.78,4.8),mat.leg,0,2.6,0);
+add('leg','t',new T.SphereGeometry(.8,24,16),mat.leg);
+add('leg','s',Cy(.7,.5,4.8),mat.leg,0,-2.6,0);
+
+/* aluminio: pletinas laterales + bisagra */
+[-1,1].forEach(s=>{
+ add('al','t',B(.12,4.6,.34),mat.al,s*BX,2.5,0);
+ add('al','s',B(.12,4.6,.34),mat.al,s*BX,-2.5,0);
+ add('al','t',Cy(.34,.34,.14),mat.al,s*BX,0,0,false,0,PI/2);
+ add('al','s',Cy(.26,.26,.14),mat.al,s*(BX+.09),0,0,false,0,PI/2);
+ add('al','s',B(.05,.5,.08),mat.strap,s*(BX+.17),-.2,0);
+});
+add('al','t',Cy(.09,.09,2.7),mat.al,0,0,0,0,0,PI/2);
+
+/* cinchas PETG, acolchado, correas y soportes */
+[['t',3.9,1.2,1.06],['t',1.1,.9,.93],['s',-1.35,1.0,.76],['s',-3.9,1.1,.66]].forEach(([p,y,h,r])=>{
+ add('petg',p,Cy(r,r,h,true,.6,2*PI-1.2),mat.petg,0,y,0);
+ add('strap',p,Cy(r-.05,r-.05,h*.8,true,.6,2*PI-1.2),mat.pad,0,y,0);
+ add('strap',p,Cy(r+.025,r+.025,h*.42,true,-1.2,2.4),mat.strap,0,y,0);
+ add('strap',p,B(.3,h*.3,.07),mat.al,0,y,r+.05);
+ const x0=r-.03,w=BX-.06-x0;
+ [-1,1].forEach(s=>add('petg',p,B(w,h*.5,.4),mat.petg,s*(x0+w/2),y,0));
+});
+add('petg','t',B(.06,3.4,.7),mat.petg,BX+.12,2.7,0);
+add('petg','s',B(.06,1.5,.6),mat.petg,BX+.12,-2.4,0);
+
+/* electrónica */
+const X=BX+.2;
+add('elec','t',B(.1,1.0,.5),mat.esp,X,2.5,0);
+add('elec','t',B(.05,.4,.3),mat.al,X+.07,2.75,0);
+const led=add('elec','t',new T.SphereGeometry(.07,12,8),new T.MeshBasicMaterial({color:0x34c759}),X+.08,2.15,.15);
+add('elec','t',B(.14,1.0,.5),mat.bat,X+.02,3.75,0);
+add('elec','t',B(.08,.3,.28),mat.imu,X-.02,1.35,0);
+add('elec','s',B(.08,.3,.28),mat.imu,X-.02,-2.4,0);
+add('elec','t',B(.08,.38,.38),mat.enc,X-.05,0,0);
+add('elec','s',Cy(.12,.12,.06),mat.mag,BX+.2,0,0,false,0,PI/2);
+const tube=(pts,c,g)=>new T.Mesh(new T.TubeGeometry(new T.CatmullRomCurve3(pts.map(p=>new T.Vector3(...p))),32,.025,6),new T.MeshBasicMaterial({color:c}));
+L.elec.t.add(tube([[X,2.0,.1],[X+.05,1.7,.15],[X,1.5,.1]],0xffd54f));
+L.elec.t.add(tube([[X,2.0,-.1],[X+.1,1.0,-.2],[X+.02,.3,-.12]],0x66bb6a));
+let wire=null;
+function drawWire(f){
+ const c=Math.cos(f),s=Math.sin(f),rot=(y,z)=>[y*c-z*s,y*s+z*c];
+ const a=rot(-1.0,.1),b=rot(-2.2,.05);
+ const g=tube([[X,2.0,0],[X+.12,1.0,.15],[X+.15,.1,.45],[X+.1,a[0],a[1]+.1],[X,b[0]+.1,b[1]]],0xff7043);
+ if(wire){L.elec.t.remove(wire);wire.geometry.dispose()}
+ wire=g;L.elec.t.add(wire);
+}
+
+/* leyenda y capas */
+const info=[['leg','Pierna de referencia','Muslo y pantorrilla, solo para ver las proporciones.','#cfa98a'],
+['al','Estructura de aluminio','Pletinas laterales y bisagra alineada con el eje de la rodilla.','#b9c2ca'],
+['petg','Soportes de PETG','Cinchas rígidas impresas en 3D, placas de montaje y uniones.','#1fb5a0'],
+['strap','Correas acolchadas','Cintas con hebilla y espuma interior que reparte la presión.','#6a7683'],
+['elec','Sensores y microcontrolador','Dos IMU MPU6050, encoder magnético AS5600, ESP32 y batería LiPo.','#2e7dd1']];
+const lg=document.getElementById('lg');
+info.forEach(([k,n,d,c])=>{
+ const li=document.createElement('li');
+ li.innerHTML='<i style="background:'+c+'"></i><label><input type="checkbox" checked> '+n+'</label><small>'+d+'</small>';
+ li.querySelector('input').onchange=e=>L[k].g.visible=e.target.checked;
+ lg.appendChild(li);
+});
+
+/* flexión */
+const fl=document.getElementById('fl'),ang=document.getElementById('ang'),st=document.getElementById('st'),pl=document.getElementById('pl');
+function setFlex(d){
+ const f=d*PI/180;
+ for(const k in L)L[k].s.rotation.x=f;
+ drawWire(f);
+ ang.textContent=Math.round(d)+'°';
+ const bad=d>100;
+ st.textContent=bad?'Alerta: flexión excesiva':'Rango seguro';
+ st.className=bad?'bad':'';
+ led.material.color.set(bad?0xff3b30:0x34c759);
+ fl.value=d;
+}
+let play=true;
+fl.oninput=()=>{play=false;pl.textContent='Reanudar movimiento';setFlex(+fl.value)};
+pl.onclick=()=>{play=!play;pl.textContent=play?'Pausar movimiento':'Reanudar movimiento'};
+
+/* cámara orbital */
+const cv=R.domElement,clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+let th=.85,ph=1.35,ds=17;const P=new Map();
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);P.set(e.pointerId,[e.clientX,e.clientY])});
+cv.addEventListener('pointermove',e=>{
+ const o=P.get(e.pointerId);if(!o)return;
+ if(P.size===1){th-=(e.clientX-o[0])*.008;ph=clamp(ph-(e.clientY-o[1])*.008,.3,2.8)}
+ else if(P.size===2){const q=[...P].find(([id])=>id!==e.pointerId)[1];
+  ds=clamp(ds*Math.hypot(o[0]-q[0],o[1]-q[1])/Math.hypot(e.clientX-q[0],e.clientY-q[1]),8,30)}
+ P.set(e.pointerId,[e.clientX,e.clientY]);
+});
+['pointerup','pointercancel'].forEach(n=>cv.addEventListener(n,e=>P.delete(e.pointerId)));
+cv.addEventListener('wheel',e=>{e.preventDefault();ds=clamp(ds*(1+e.deltaY*.001),8,30)},{passive:false});
+new ResizeObserver(()=>{const w=wrap.clientWidth,h=wrap.clientHeight;R.setSize(w,h,false);cv.style.width=w+'px';cv.style.height=h+'px';C.aspect=w/h;C.updateProjectionMatrix()}).observe(wrap);
+
+const t0=performance.now();
+setFlex(0);
+(function loop(){
+ requestAnimationFrame(loop);
+ if(play)setFlex(36+36*Math.sin((performance.now()-t0)/1000*1.5-PI/2));
+ C.position.set(ds*Math.sin(ph)*Math.sin(th),ds*Math.cos(ph),ds*Math.sin(ph)*Math.cos(th));
+ C.lookAt(0,0,0);R.render(S,C);
+})();
+</script></body></html>
